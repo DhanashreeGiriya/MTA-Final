@@ -200,8 +200,45 @@ if n_customers < 1000:
     )
 
 
+# ── Hero Banner ───────────────────────────────────────────────────────────────
+st.markdown("""
+<div style="
+background: linear-gradient(90deg,#2c3e50,#4b6cb7);
+padding:20px;
+border-radius:10px;
+margin-bottom:20px;
+color:white;
+">
+<h2 style="margin:0;">
+Marketing Attribution Intelligence Platform
+</h2>
+<p style="margin:5px 0 0 0;font-size:16px;">
+Unified measurement across digital and offline marketing channels
+</p>
+<p style="margin:5px 0 0 0;font-size:13px;opacity:0.9;">
+Shapley Attribution • Markov Modeling • Marketing Mix Modeling • Budget Optimization
+</p>
+</div>
+""", unsafe_allow_html=True)
+
+# ── Key Insight Callout ───────────────────────────────────────────────────────
+st.markdown("""
+<div style="
+background:#f8f9fa;
+border-left:5px solid #9b59b6;
+padding:15px;
+border-radius:6px;
+margin-bottom:20px;
+">
+<b>Key Insight</b><br>
+Traditional last-touch attribution significantly over-credits lower funnel
+channels like Paid Search while under-crediting upper funnel channels such as
+TV, Display, and Direct Mail. Game-theoretic attribution corrects this bias.
+</div>
+""", unsafe_allow_html=True)
+
 # ── Header ────────────────────────────────────────────────────────────────────
-st.title("🎯 Multi-Touch Attribution Demo")
+st.title("🎯 Marketing Attribution Intelligence")
 st.markdown(
     "**Cooperative Game Theory–powered attribution** — Shapley values, Banzhaf index, "
     "Ordered Shapley (Zhao 2018), and Markov chain removal effects, compared against "
