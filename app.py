@@ -1624,31 +1624,32 @@ with tab_scenario:
         # ── live budget tracker (top) ─────────────────────────────────────────
         st.markdown(f"""
         <div style="
-            background: linear-gradient(135deg,#1a1a2e,#16213e);
+            background: linear-gradient(135deg,#f0f4ff,#e8edf8);
+            border:1.5px solid #c5d0e8;
             border-radius:12px; padding:16px 24px; margin:0 0 18px 0;
             display:inline-flex; align-items:center; gap:32px; flex-wrap:wrap;
         ">
             <div>
-                <div style="font-size:0.7rem;color:#adb5bd;letter-spacing:.08em;
+                <div style="font-size:0.7rem;color:#6c757d;letter-spacing:.08em;
                             text-transform:uppercase">Total Budget</div>
-                <div style="font-size:1.5rem;font-weight:800;color:#fff">
+                <div style="font-size:1.5rem;font-weight:800;color:#212529">
                     ${sc_new_budget:,.0f}</div>
             </div>
-            <div style="height:36px;width:1px;background:#444"></div>
+            <div style="height:36px;width:1px;background:#c5d0e8"></div>
             <div>
-                <div style="font-size:0.7rem;color:#adb5bd;letter-spacing:.08em;
+                <div style="font-size:0.7rem;color:#6c757d;letter-spacing:.08em;
                             text-transform:uppercase">Online Channels</div>
-                <div style="font-size:1.1rem;font-weight:700;color:#4fc3f7">
+                <div style="font-size:1.1rem;font-weight:700;color:#1565c0">
                     ${sum(default_auto[ch] for ch in online_chs):,.0f}</div>
             </div>
             <div>
-                <div style="font-size:0.7rem;color:#adb5bd;letter-spacing:.08em;
+                <div style="font-size:0.7rem;color:#6c757d;letter-spacing:.08em;
                             text-transform:uppercase">Offline Channels</div>
-                <div style="font-size:1.1rem;font-weight:700;color:#ffb74d">
+                <div style="font-size:1.1rem;font-weight:700;color:#bf360c">
                     ${sum(default_auto[ch] for ch in offline_chs):,.0f}</div>
             </div>
-            <div style="height:36px;width:1px;background:#444"></div>
-            <div style="font-size:0.75rem;color:#adb5bd;font-style:italic">
+            <div style="height:36px;width:1px;background:#c5d0e8"></div>
+            <div style="font-size:0.75rem;color:#6c757d;font-style:italic">
                 Adjust sliders below — tracker updates on rerun
             </div>
         </div>
