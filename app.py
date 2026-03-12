@@ -1459,6 +1459,37 @@ with tab_scenario:
     else:
         _conv_uplift_html = ""
 
+    # ── Manual conv uplift for banner (needs confirmed spend from session state) ─
+    if "🎛️ Manual" in alloc_mode and "sc_confirmed_spend" in st.session_state:
+        _mc_spend = st.session_state["sc_confirmed_spend"]
+        _mc_alpha = np.maximum(np.array([sh_w.get(ch, 1e-6) for ch in CHANNELS]), 1e-6)
+        _mc_alpha = _mc_alpha / _mc_alpha.sum()
+        _mc_curr_resp = sum(_resp(curr_opt_spend.get(ch, sc_curr_spend[ch]), _mc_alpha[i])
+                            for i, ch in enumerate(CHANNELS))
+        _mc_sf        = float(sum(1 for j in journeys if j["converted"])) / max(_mc_curr_resp, 1e-9)
+        _mc_curr_conv = _mc_curr_resp * _mc_sf
+        _mc_new_conv  = sum(_resp(_mc_spend.get(ch, 0), _mc_alpha[i])
+                            for i, ch in enumerate(CHANNELS)) * _mc_sf
+        _mc_lift      = _mc_new_conv - _mc_curr_conv
+        _mc_lift_pct  = _mc_lift / max(_mc_curr_conv, 1) * 100
+        _mc_color     = "#27ae60" if _mc_lift >= 0 else "#e74c3c"
+        _mc_sign      = "+" if _mc_lift >= 0 else ""
+        _mc_conv_html = (
+            "<div style='border-left:2px solid #dee2e6;padding-left:30px;display:inline-flex;gap:40px;align-items:center'>"
+            "<div><div style='font-size:0.75rem;color:#6c757d'>Current Conv.</div>"
+            "<div style='font-size:1.4rem;font-weight:700'>" + f"{_mc_curr_conv:,.0f}" + "</div></div>"
+            "<div style='font-size:1.8rem;color:" + _mc_color + "'>&#8594;</div>"
+            "<div><div style='font-size:0.75rem;color:#6c757d'>New Conv.</div>"
+            "<div style='font-size:1.4rem;font-weight:700'>" + f"{_mc_new_conv:,.0f}" + "</div></div>"
+            "<div style='border-left:2px solid #dee2e6;padding-left:30px'>"
+            "<div style='font-size:0.75rem;color:#6c757d'>&#127919; Conv. Uplift</div>"
+            "<div style='font-size:1.4rem;font-weight:700;color:" + _mc_color + "'>"
+            + f"{_mc_sign}{_mc_lift:.0f} ({_mc_sign}{_mc_lift_pct:.1f}%)" +
+            "</div></div></div>"
+        )
+    else:
+        _mc_conv_html = ""
+
     # ── Delta banner — fit-content so it shrinks to text width ───────────────
     _curr_budget_str  = f"${sc_current_budget:,.0f}"
     _new_budget_str   = f"${sc_new_budget:,.0f}"
@@ -1484,48 +1515,11 @@ with tab_scenario:
         "<div style='font-size:0.75rem;color:#6c757d'>" + delta_label + "</div>"
         "<div style='font-size:1.4rem;font-weight:700;color:" + delta_color + "'>" + _delta_str + "</div>"
         "</div>"
-        + _conv_uplift_html +
+        + _conv_uplift_html
+        + _mc_conv_html +
         "</div>",
         unsafe_allow_html=True,
     )
-
-    # Placeholder: manual mode fills this with conv uplift banner after compute
-    _manual_conv_placeholder = st.empty()
-
-    # If confirmed spend exists in session state, render conv uplift beside budget banner
-    if "🎛️ Manual" in alloc_mode and "sc_confirmed_spend" in st.session_state:
-        _mc_spend = st.session_state["sc_confirmed_spend"]
-        _mc_alpha = np.maximum(np.array([sh_w.get(ch, 1e-6) for ch in CHANNELS]), 1e-6)
-        _mc_alpha = _mc_alpha / _mc_alpha.sum()
-        _mc_curr_resp = sum(_resp(curr_opt_spend.get(ch, sc_curr_spend[ch]), _mc_alpha[i])
-                            for i, ch in enumerate(CHANNELS))
-        _mc_sf        = float(sum(1 for j in journeys if j["converted"])) / max(_mc_curr_resp, 1e-9)
-        _mc_curr_conv = _mc_curr_resp * _mc_sf
-        _mc_new_conv  = sum(_resp(_mc_spend.get(ch, 0), _mc_alpha[i])
-                            for i, ch in enumerate(CHANNELS)) * _mc_sf
-        _mc_lift      = _mc_new_conv - _mc_curr_conv
-        _mc_lift_pct  = _mc_lift / max(_mc_curr_conv, 1) * 100
-        _mc_color     = "#27ae60" if _mc_lift >= 0 else "#e74c3c"
-        _mc_sign      = "+" if _mc_lift >= 0 else ""
-        _manual_conv_placeholder.markdown(
-            "<div style='"
-            "background:linear-gradient(135deg,#f8f9fa,#e9ecef);"
-            "border-left:5px solid " + _mc_color + ";"
-            "border-radius:8px;padding:14px 20px;margin:0 0 12px 0;"
-            "display:inline-flex;gap:40px;align-items:center;"
-            "'>"
-            "<div><div style='font-size:0.75rem;color:#6c757d'>Current Conv.</div>"
-            "<div style='font-size:1.4rem;font-weight:700'>" + f"{_mc_curr_conv:,.0f}" + "</div></div>"
-            "<div style='font-size:1.8rem;color:" + _mc_color + "'>&#8594;</div>"
-            "<div><div style='font-size:0.75rem;color:#6c757d'>New Conv.</div>"
-            "<div style='font-size:1.4rem;font-weight:700'>" + f"{_mc_new_conv:,.0f}" + "</div></div>"
-            "<div style='border-left:2px solid #dee2e6;padding-left:30px'>"
-            "<div style='font-size:0.75rem;color:#6c757d'>&#127919; Conv. Uplift</div>"
-            "<div style='font-size:1.4rem;font-weight:700;color:" + _mc_color + "'>"
-            + f"{_mc_sign}{_mc_lift:.0f} ({_mc_sign}{_mc_lift_pct:.1f}%)" +
-            "</div></div></div>",
-            unsafe_allow_html=True,
-        )
 
     # ═══════════════════════════════════════════════════════════════════════════
     # SECTION 2 — Allocation (Auto or Manual)
@@ -1897,6 +1891,7 @@ with tab_scenario:
             st.session_state["sc_confirmed_spend"]       = dict(sc_new_spend)
             st.session_state["sc_confirmed_budget"]      = sc_new_budget
             st.session_state["sc_confirmed_slider_hash"] = current_slider_hash
+            st.rerun()
 
         # Invalidate results if sliders have changed since last compute
         if st.session_state.get("sc_confirmed_slider_hash") != current_slider_hash:
