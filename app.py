@@ -1364,35 +1364,7 @@ with tab_scenario:
     delta_color = "#27ae60" if sc_delta >= 0 else "#e74c3c"
     delta_label = f"{'📈 Budget Increase' if sc_delta >= 0 else '📉 Budget Cut'}"
 
-    st.markdown(f"""
-    <div style="
-        background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-        border-left: 5px solid {delta_color};
-        border-radius: 8px;
-        padding: 14px 20px;
-        margin: 12px 0;
-        display: flex;
-        gap: 40px;
-        align-items: center;
-    ">
-        <div>
-            <div style="font-size:0.75rem;color:#6c757d">Current Budget</div>
-            <div style="font-size:1.4rem;font-weight:700">${sc_current_budget:,.0f}</div>
-        </div>
-        <div style="font-size:1.8rem;color:{delta_color}">→</div>
-        <div>
-            <div style="font-size:0.75rem;color:#6c757d">New Budget</div>
-            <div style="font-size:1.4rem;font-weight:700">${sc_new_budget:,.0f}</div>
-        </div>
-        <div style="border-left:2px solid #dee2e6;padding-left:30px">
-            <div style="font-size:0.75rem;color:#6c757d">{delta_label}</div>
-            <div style="font-size:1.4rem;font-weight:700;color:{delta_color}">${sc_delta:+,.0f}
-            ({sc_delta/sc_current_budget*100:+.1f}%)</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ── Compute baseline current spend per channel ────────────────────────────
+    # ── Compute baseline current spend per channel (CPT-weighted, used for Section 3) ──
     cpt_vals    = np.array([CHANNEL_CPT[ch] + 1 for ch in CHANNELS], dtype=float)
     curr_w      = cpt_vals / cpt_vals.sum()
     sc_curr_spend = {ch: sc_current_budget * w for ch, w in zip(CHANNELS, curr_w)}
@@ -1416,6 +1388,145 @@ with tab_scenario:
     )
     auto_spend = dict(zip(auto_opt_df["channel"], auto_opt_df["optimised_spend"]))
 
+    # ── Shapley-optimised baseline at CURRENT budget (for uplift banner) ──────
+    # This is what the optimizer would allocate if given the current budget —
+    # uplift = going from this optimised baseline to the new-budget optimised allocation
+    @st.cache_data(show_spinner=False)
+    def _scenario_optimise_curr(sh_weights_hash, curr_budget, curr_spend_vals,
+                                _sh_w, _curr_spend, min_a, max_a):
+        return optimize_budget(
+            _sh_w, curr_budget,
+            min_per_channel=min_a,
+            max_per_channel=max_a,
+            current_spend=_curr_spend,
+        )
+
+    curr_opt_df   = _scenario_optimise_curr(
+        hash(tuple(sorted(sh_w.items()))),
+        sc_current_budget,
+        tuple(sc_curr_spend[ch] for ch in CHANNELS),
+        sh_w, sc_curr_spend, min_alloc, max_alloc,
+    )
+    curr_opt_spend = dict(zip(curr_opt_df["channel"], curr_opt_df["optimised_spend"]))
+
+    # ── Quick conversion uplift preview for banner (auto mode only) ───────────
+    attr_arr_b  = np.array([sh_w.get(ch, 1e-6) for ch in CHANNELS])
+    attr_arr_b  = np.maximum(attr_arr_b, 1e-6)
+    alpha_arr_b = attr_arr_b / attr_arr_b.sum()
+
+    # Baseline = Shapley-optimised at current budget
+    _total_curr_resp_b = sum(_resp(curr_opt_spend.get(ch, sc_curr_spend[ch]), alpha_arr_b[i])
+                             for i, ch in enumerate(CHANNELS))
+    _total_conv_b      = float(sum(1 for j in journeys if j["converted"]))
+    _sf_b              = _total_conv_b / max(_total_curr_resp_b, 1e-9)
+    _curr_conv_b       = _total_curr_resp_b * _sf_b
+
+    # New = Shapley-optimised at new budget
+    _auto_conv_b   = sum(_resp(auto_spend.get(ch, sc_curr_spend[ch]), alpha_arr_b[i])
+                         for i, ch in enumerate(CHANNELS)) * _sf_b
+    _uplift_conv_b = _auto_conv_b - _curr_conv_b
+    _uplift_pct_b  = _uplift_conv_b / max(_curr_conv_b, 1) * 100
+    _uplift_color_b = "#27ae60" if _uplift_conv_b >= 0 else "#e74c3c"
+    _uplift_sign_b  = "+" if _uplift_conv_b >= 0 else ""
+
+    # Build uplift pill as a plain string (avoids double-interpolation in outer f-string)
+    _is_auto = "🤖 Auto-Optimise" in alloc_mode
+    if _is_auto:
+        _curr_conv_str   = f"{_curr_conv_b:,.0f}"
+        _auto_conv_str   = f"{_auto_conv_b:,.0f}"
+        _uplift_val_str  = f"{_uplift_sign_b}{_uplift_conv_b:.0f} ({_uplift_sign_b}{_uplift_pct_b:.1f}%)"
+        _conv_uplift_html = (
+            "<div style='border-left:2px solid #dee2e6;padding-left:30px;display:flex;gap:24px;align-items:center'>"
+            # current conv
+            "<div>"
+            "<div style='font-size:0.75rem;color:#6c757d'>Current Conv.</div>"
+            "<div style='font-size:1.4rem;font-weight:700'>" + _curr_conv_str + "</div>"
+            "</div>"
+            # arrow
+            "<div style='font-size:1.8rem;color:" + _uplift_color_b + "'>&#8594;</div>"
+            # new conv
+            "<div>"
+            "<div style='font-size:0.75rem;color:#6c757d'>New Conv.</div>"
+            "<div style='font-size:1.4rem;font-weight:700'>" + _auto_conv_str + "</div>"
+            "</div>"
+            # uplift
+            "<div style='border-left:2px solid #dee2e6;padding-left:24px'>"
+            "<div style='font-size:0.75rem;color:#6c757d'>&#127919; Conv. Uplift</div>"
+            "<div style='font-size:1.4rem;font-weight:700;color:" + _uplift_color_b + "'>" + _uplift_val_str + "</div>"
+            "</div>"
+            "</div>"
+        )
+    else:
+        _conv_uplift_html = ""
+
+    # ── Delta banner — fit-content so it shrinks to text width ───────────────
+    _curr_budget_str  = f"${sc_current_budget:,.0f}"
+    _new_budget_str   = f"${sc_new_budget:,.0f}"
+    _delta_str        = f"${sc_delta:+,.0f} ({sc_delta/sc_current_budget*100:+.1f}%)"
+
+    st.markdown(
+        "<div style='"
+        "background:linear-gradient(135deg,#f8f9fa,#e9ecef);"
+        "border-left:5px solid " + delta_color + ";"
+        "border-radius:8px;padding:14px 20px;margin:12px 0;"
+        "display:inline-flex;gap:40px;align-items:center;min-width:0;"
+        "'>"
+        "<div>"
+        "<div style='font-size:0.75rem;color:#6c757d'>Current Budget</div>"
+        "<div style='font-size:1.4rem;font-weight:700'>" + _curr_budget_str + "</div>"
+        "</div>"
+        "<div style='font-size:1.8rem;color:" + delta_color + "'>&#8594;</div>"
+        "<div>"
+        "<div style='font-size:0.75rem;color:#6c757d'>New Budget</div>"
+        "<div style='font-size:1.4rem;font-weight:700'>" + _new_budget_str + "</div>"
+        "</div>"
+        "<div style='border-left:2px solid #dee2e6;padding-left:30px'>"
+        "<div style='font-size:0.75rem;color:#6c757d'>" + delta_label + "</div>"
+        "<div style='font-size:1.4rem;font-weight:700;color:" + delta_color + "'>" + _delta_str + "</div>"
+        "</div>"
+        + _conv_uplift_html +
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Placeholder: manual mode fills this with conv uplift banner after compute
+    _manual_conv_placeholder = st.empty()
+
+    # If confirmed spend exists in session state, render conv uplift beside budget banner
+    if "🎛️ Manual" in alloc_mode and "sc_confirmed_spend" in st.session_state:
+        _mc_spend = st.session_state["sc_confirmed_spend"]
+        _mc_alpha = np.maximum(np.array([sh_w.get(ch, 1e-6) for ch in CHANNELS]), 1e-6)
+        _mc_alpha = _mc_alpha / _mc_alpha.sum()
+        _mc_curr_resp = sum(_resp(curr_opt_spend.get(ch, sc_curr_spend[ch]), _mc_alpha[i])
+                            for i, ch in enumerate(CHANNELS))
+        _mc_sf        = float(sum(1 for j in journeys if j["converted"])) / max(_mc_curr_resp, 1e-9)
+        _mc_curr_conv = _mc_curr_resp * _mc_sf
+        _mc_new_conv  = sum(_resp(_mc_spend.get(ch, 0), _mc_alpha[i])
+                            for i, ch in enumerate(CHANNELS)) * _mc_sf
+        _mc_lift      = _mc_new_conv - _mc_curr_conv
+        _mc_lift_pct  = _mc_lift / max(_mc_curr_conv, 1) * 100
+        _mc_color     = "#27ae60" if _mc_lift >= 0 else "#e74c3c"
+        _mc_sign      = "+" if _mc_lift >= 0 else ""
+        _manual_conv_placeholder.markdown(
+            "<div style='"
+            "background:linear-gradient(135deg,#f8f9fa,#e9ecef);"
+            "border-left:5px solid " + _mc_color + ";"
+            "border-radius:8px;padding:14px 20px;margin:0 0 12px 0;"
+            "display:inline-flex;gap:40px;align-items:center;"
+            "'>"
+            "<div><div style='font-size:0.75rem;color:#6c757d'>Current Conv.</div>"
+            "<div style='font-size:1.4rem;font-weight:700'>" + f"{_mc_curr_conv:,.0f}" + "</div></div>"
+            "<div style='font-size:1.8rem;color:" + _mc_color + "'>&#8594;</div>"
+            "<div><div style='font-size:0.75rem;color:#6c757d'>New Conv.</div>"
+            "<div style='font-size:1.4rem;font-weight:700'>" + f"{_mc_new_conv:,.0f}" + "</div></div>"
+            "<div style='border-left:2px solid #dee2e6;padding-left:30px'>"
+            "<div style='font-size:0.75rem;color:#6c757d'>&#127919; Conv. Uplift</div>"
+            "<div style='font-size:1.4rem;font-weight:700;color:" + _mc_color + "'>"
+            + f"{_mc_sign}{_mc_lift:.0f} ({_mc_sign}{_mc_lift_pct:.1f}%)" +
+            "</div></div></div>",
+            unsafe_allow_html=True,
+        )
+
     # ═══════════════════════════════════════════════════════════════════════════
     # SECTION 2 — Allocation (Auto or Manual)
     # ═══════════════════════════════════════════════════════════════════════════
@@ -1435,10 +1546,10 @@ with tab_scenario:
             "the highest ROI right now."
         )
 
-        # Side-by-side current vs optimal
+        # Side-by-side current vs optimal — both Shapley-optimised, different budgets
         fig_auto = go.Figure()
         ch_labels_plot = [CHANNEL_LABELS[ch] for ch in CHANNELS]
-        curr_vals = [sc_curr_spend[ch] for ch in CHANNELS]
+        curr_vals = [curr_opt_spend.get(ch, sc_curr_spend[ch]) for ch in CHANNELS]
         opt_vals  = [auto_spend.get(ch, sc_curr_spend[ch]) for ch in CHANNELS]
 
         fig_auto.add_trace(go.Bar(
@@ -1521,7 +1632,7 @@ with tab_scenario:
         <div style="
             background: linear-gradient(135deg,#1a1a2e,#16213e);
             border-radius:12px; padding:16px 24px; margin:0 0 18px 0;
-            display:flex; align-items:center; gap:32px; flex-wrap:wrap;
+            display:inline-flex; align-items:center; gap:32px; flex-wrap:wrap;
         ">
             <div>
                 <div style="font-size:0.7rem;color:#adb5bd;letter-spacing:.08em;
@@ -1836,11 +1947,13 @@ with tab_scenario:
     )
 
     # Compute current and new responses per channel
+    # Baseline = Shapley-optimised at current budget (consistent with banner)
+    _baseline_spend = curr_opt_spend  # Shapley-optimal at sc_current_budget
     curr_responses = {}
     new_responses  = {}
     for i, ch in enumerate(CHANNELS):
         a = alpha_arr[i]
-        curr_responses[ch] = _resp(sc_curr_spend[ch], a)
+        curr_responses[ch] = _resp(_baseline_spend.get(ch, sc_curr_spend[ch]), a)
         new_responses[ch]  = _resp(sc_new_spend.get(ch, sc_curr_spend[ch]), a)
 
     total_curr_resp = sum(curr_responses.values())
@@ -1935,6 +2048,8 @@ with tab_scenario:
             f"confidence band — this is a reliably detectable improvement."
         )
 
+
+
     # ── Per-channel lift waterfall ─────────────────────────────────────────────
     ch_lifts     = [(CHANNEL_LABELS[ch],
                      (new_responses[ch] - curr_responses[ch]) * scale_factor,
@@ -1990,7 +2105,8 @@ with tab_scenario:
     rc_alpha  = alpha_arr[rc_idx]
     rc_color  = CHANNEL_COLORS.get(rc_ch_key, "#9b59b6")
 
-    x_max = max(sc_curr_spend[rc_ch_key], sc_new_spend.get(rc_ch_key, 0)) * 1.5 + 5_000
+    _rc_curr_sp = _baseline_spend.get(rc_ch_key, sc_curr_spend[rc_ch_key])
+    x_max = max(_rc_curr_sp, sc_new_spend.get(rc_ch_key, 0)) * 1.5 + 5_000
     x_range = np.linspace(0, x_max, 300)
     y_range = [_resp(x, rc_alpha) * scale_factor for x in x_range]
 
@@ -2000,16 +2116,16 @@ with tab_scenario:
         mode="lines", name="Response Curve",
         line=dict(color=rc_color, width=2.5),
     ))
-    # Current point
-    curr_pt_y = _resp(sc_curr_spend[rc_ch_key], rc_alpha) * scale_factor
+    # Current point (Shapley-optimised at current budget)
+    curr_pt_y = _resp(_rc_curr_sp, rc_alpha) * scale_factor
     fig_rc.add_trace(go.Scatter(
-        x=[sc_curr_spend[rc_ch_key]], y=[curr_pt_y],
+        x=[_rc_curr_sp], y=[curr_pt_y],
         mode="markers", name="Current Spend",
         marker=dict(color="#3498db", size=14, symbol="circle",
                     line=dict(color="white", width=2)),
     ))
     # New point
-    new_sp_rc = sc_new_spend.get(rc_ch_key, sc_curr_spend[rc_ch_key])
+    new_sp_rc = sc_new_spend.get(rc_ch_key, _rc_curr_sp)
     new_pt_y  = _resp(new_sp_rc, rc_alpha) * scale_factor
     fig_rc.add_trace(go.Scatter(
         x=[new_sp_rc], y=[new_pt_y],
@@ -2049,7 +2165,7 @@ with tab_scenario:
 
     proj_rows = []
     for i, ch in enumerate(CHANNELS):
-        curr_sp  = sc_curr_spend[ch]
+        curr_sp  = _baseline_spend.get(ch, sc_curr_spend[ch])
         new_sp   = sc_new_spend.get(ch, curr_sp)
         sp_delta = new_sp - curr_sp
         c_resp   = curr_responses[ch] * scale_factor
