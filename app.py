@@ -1068,7 +1068,7 @@ with tab_mmm:
 
             st.dataframe(
                 gap_display.style
-                .applymap(color_gap, subset=["Gap (MMM−MTA) pp"])
+                .map(color_gap, subset=["Gap (MMM−MTA) pp"])
                 .format({"MTA %": "{:.1f}", "MMM %": "{:.1f}",
                          "Hybrid %": "{:.1f}", "Gap (MMM−MTA) pp": "{:+.1f}"}),
                 width='stretch', hide_index=True,
